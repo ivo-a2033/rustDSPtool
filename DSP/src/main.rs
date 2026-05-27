@@ -26,7 +26,7 @@ async fn main() {
     // reinterpret bytes as i16
     let sound_data: &[i16] = cast_slice(pcm_bytes);
     let mut count: usize = 0;
-    let window_size: usize = (48000.0 * 0.25) as usize;
+    let window_size: usize = (sample_rate as f32 * 0.125) as usize;
 
     // create our planner, whatever that is
     let mut planner = FftPlanner::new();
@@ -34,7 +34,7 @@ async fn main() {
 
     let start_time = get_time();
 
-    let scale_x = 2.0;
+    let scale_x = 4.0;
 
     println!("setup done");
 
@@ -98,7 +98,7 @@ async fn main() {
 
     println!("{}", data_start);
 
-    let factor = 4; // hold each sample for N samples
+    /*let factor = 16; // hold each sample for N samples
     let mut i = data_start;
     while i + 1 < bytes.len() {
         let sample_index = (i - data_start) / 2;
@@ -108,7 +108,8 @@ async fn main() {
         bytes[i]     = bytes[held_byte];
         bytes[i + 1] = bytes[held_byte + 1];
         i += 2;
-    }
+    }*/
+    
 
     write("output.wav", &bytes).unwrap();
 
