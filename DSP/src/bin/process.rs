@@ -13,6 +13,16 @@ fn hann_window(size: usize) -> Vec<f32> {
         .collect()
 }
 
+fn update_bar(idx: usize, window_size: usize, precision: i32, sound_data_len: usize){
+    if idx % window_size <= precision as usize{ 
+        let progress = idx as f32 / sound_data_len as f32;
+        let filled = (progress * 10.0) as usize;
+        print!("\r[{}{}] {:.0}%", "#".repeat(filled), ".".repeat(10 - filled), progress * 100.0);
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+    }
+}
+
 fn main() {
     
     let mut bytes = read("megalovania.wav").unwrap();
@@ -27,6 +37,10 @@ fn main() {
 
     // reinterpret bytes as i16
     let sound_data: &[i16] = cast_slice(pcm_bytes);
+
+    // thisll hold the output
+    let mut sound_data_out = vec![0i16; sound_data.len()];
+
     let mut count: usize = 0;
     let window_size: usize = (sample_rate as f32 * 0.125) as usize;
     let hop_size = (window_size as f32 * 0.5) as usize;
@@ -34,6 +48,11 @@ fn main() {
     // create our planner, whatever that is
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(window_size);
+    let ifft = planner.plan_fft_inverse(window_size); // each of these is its own obj
+
+    let mut prev_phase = vec![0.0f32; window_size];
+    let mut phase_acc = vec![0.0f32; window_size];
+    let mut phase_acc_out = vec![0.0f32; window_size];
 
     let scale_x = 4.0;
 
@@ -53,24 +72,79 @@ fn main() {
             .map(|i| Complex { re: sound_data[i + idx] as f32 * window[i], im: 0.0 })
             .collect();
         fft.process(&mut buffer);
+
+        // --- processing happens here ---
+
+
+        // phase vocoding
+        let mut mag = vec![0.0f32; window_size];
+        let mut phase = vec![0.0f32; window_size];
+
+        let omega = 2.0 * std::f32::consts::PI * hop_size as f32 / window_size as f32;
+
+        for k in 0..window_size {
+            mag[k] = buffer[k].norm();
+            phase[k] = buffer[k].arg();
+        }
+
+        let mut new_buffer = vec![Complex::new(0.0, 0.0); window_size];
+        new_buffer.fill(Complex::new(0.0, 0.0)); // once before
+        for k in 0..window_size {
+            let mut delta = phase[k] - prev_phase[k];
+            prev_phase[k] = phase[k];
+
+            delta -= k as f32 * omega;
+            delta -= 2.0 * std::f32::consts::PI * (delta / (2.0 * std::f32::consts::PI)).round();
+
+            phase_acc[k] += k as f32 * omega + delta;
+            let true_freq = k as f32 * omega + delta;
+            let pitch = 2.0;
+            let target = (k as f32 * pitch) as usize;
+            if target < window_size {
+                phase_acc_out[target] += true_freq * pitch;
+                new_buffer[target] += Complex::from_polar(mag[k], phase_acc_out[target]);            
+            }
+
+            // dump frame 0 only
+            if idx == 0 {
+                let mut f = std::fs::File::create("debug_frame.csv").unwrap();
+                use std::io::Write;
+                writeln!(f, "bin,mag_in,phase_in,mag_out,phase_out").unwrap();
+                for k in 0..window_size {
+                    writeln!(f, "{},{},{},{},{}", k,
+                        mag[k], phase[k],
+                        new_buffer[k].norm(), new_buffer[k].arg()
+                    ).unwrap();
+                }
+            }
+        }
+        buffer.copy_from_slice(&new_buffer); // once after
+        // --- ---
+
+        ifft.process(&mut buffer);
+
+        let scale = 1.0 / window_size as f32; // the ifft call doesnt scale by default
+
+        for i in 0..window_size {
+            sound_data_out[i + idx] += (buffer[i].re * scale) as i16;
+        }
+
+        
         idx += hop_size;
 
-        if idx % 1000000 <= 78 {
-            let progress = idx as f32 / sound_data.len() as f32;
-            let filled = (progress * 10.0) as usize;
-            print!("\r[{}{}] {:.0}%", "#".repeat(filled), ".".repeat(10 - filled), progress * 100.0);
-            use std::io::Write;
-            std::io::stdout().flush().unwrap();
-        }
+        update_bar(idx, window_size, 10000, sound_data.len());
     }
 
-    let progress = idx as f32 / sound_data.len() as f32;
-    let filled = (progress * 10.0) as usize;
-    print!("\r[{}{}] {:.0}%", "#".repeat(filled), ".".repeat(10 - filled), progress * 100.0);
-    use std::io::Write;
-    std::io::stdout().flush().unwrap();
+    update_bar(idx, window_size, 10000, sound_data.len());
+
 
    
-    write("output.wav", &bytes).unwrap();
+    let out_bytes: &[u8] = cast_slice(&sound_data_out); // i16 back to bytes
+    let max_len = bytes.len() - data_start;
+    let copy_len = out_bytes.len().min(max_len);
 
+    bytes[data_start..data_start + copy_len]
+    .copy_from_slice(&out_bytes[..copy_len]); // dont overwrite header, wouldnt be nice
+
+    write("output.wav", &bytes).unwrap();
 }
