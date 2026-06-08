@@ -1,0 +1,12 @@
+cargo-features = ["edition2024"]
+
+[package]
+name = "rustDSP"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytemuck = "1.24.0"
+hound = "3.5.1"
+macroquad = {version="0.4", features = ["audio"]}
+rustfft = "6.4.1"
