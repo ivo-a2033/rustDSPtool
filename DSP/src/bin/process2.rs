@@ -1,6 +1,5 @@
 use std::fs::read;
 use std::fs::write;
-
 use bytemuck::cast_slice;
 use rustfft::{FftPlanner, num_complex::Complex};
 
@@ -26,7 +25,7 @@ fn update_bar(idx: usize, window_size: usize, precision: i32, sound_data_len: us
 }
 
 fn main() {
-    let mut bytes = read("mix.wav").unwrap();
+    let mut bytes = read("jingle.wav").unwrap();
 
     // read metadata
     let sample_rate = u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]);
@@ -37,23 +36,21 @@ fn main() {
         .position(|w| w == b"data")
         .unwrap()
         + 8; // skip 'data' + 4-byte size
-
     println!("data_start = {}", data_start);
 
     let pcm_bytes = &bytes[data_start..];
     let sound_data: &[i16] = cast_slice(pcm_bytes);
 
-    let window_size: usize = (sample_rate as f32 * 0.0125) as usize;
-    let hop_size = window_size / 2; // 50% overlap
+    let window_size: usize = (sample_rate as f32 * 0.05) as usize;
+    let hop_size = (window_size as f32 * 0.125) as usize; 
 
-    // Pitch shift in semitones — tweak this to taste
-    let semitones: f32 = 6.0; // e.g. +2 semitones up
+    // Pitch shift in semitones 
+    let semitones: f32 = -3.0; 
     let pitch_ratio: f32 = 2.0_f32.powf(semitones / 12.0);
 
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(window_size);
     let ifft = planner.plan_fft_inverse(window_size);
-
     let window = hann_window(window_size);
 
     // OLA normalization accumulator — prevents amplitude drop from windowing
@@ -67,7 +64,6 @@ fn main() {
     println!("setup done");
 
     let mut idx = 0usize;
-
     while idx + window_size < sound_data.len() {
         // Analysis frame
         let mut buffer: Vec<Complex<f32>> = (0..window_size)
@@ -76,77 +72,49 @@ fn main() {
                 im: 0.0,
             })
             .collect();
-
         fft.process(&mut buffer);
 
         // --- Pitch shifting ---
         let mut new_buffer = vec![Complex { re: 0.0f32, im: 0.0 }; window_size];
+        // Only loop through positive frequencies (up to Nyquist)
+        let half_window = window_size / 2;
 
-        for k in 0..window_size {
+        for k in 0..=half_window {
             let mag = buffer[k].norm();
             let phase = buffer[k].arg();
 
-            // Expected phase advance for bin k over one hop
             let expected_advance = two_pi * k as f32 * hop_size as f32 / window_size as f32;
-
-            // True instantaneous frequency deviation (phase unwrap)
             let delta = phase - prev_phase[k] - expected_advance;
             let delta_wrapped = delta - two_pi * (delta / two_pi).round();
 
-            // Destination bin (fractional; we'll use nearest integer)
-            let dst_f = k as f32 * pitch_ratio;
-            let dst = dst_f.round() as usize;
+            let dst = (k as f32 * pitch_ratio).round() as usize;
+            
+            // Ignore if it exceeds the positive frequency boundary
+            if dst <= half_window {
+                let syn_advance = two_pi * dst as f32 * hop_size as f32 / window_size as f32
+                    + delta_wrapped * pitch_ratio;
+                phase_acc[dst] += syn_advance;
 
-            if dst >= window_size {
+                // Scale amplitude by pitch_ratio to compensate for gaps/sparsity
+                let amplitude_scale = if pitch_ratio > 1.0 { pitch_ratio } else { 1.0 };
+                let complex_val = Complex::from_polar(mag * amplitude_scale, phase_acc[dst]);
                 prev_phase[k] = phase;
-                continue;
-            }
 
-            // Synthesis phase advance scaled to destination bin
-            let syn_advance = two_pi * dst as f32 * hop_size as f32 / window_size as f32
-                + delta_wrapped * pitch_ratio;
+                // pos bin
+                new_buffer[dst] += complex_val;
 
-            phase_acc[dst] += syn_advance;
-
-            let dst_floor = k as f32 * pitch_ratio;
-            let dst_frac = dst_floor.fract();
-            let dst_low = dst_floor as usize;
-            let dst_high = dst_low + 1;
-
-            if dst_high < window_size {
-                let mag_low = mag * (1.0 - dst_frac);
-                let mag_high = mag * dst_frac;
-                
-                new_buffer[dst_low] += Complex::from_polar(mag_low, phase_acc[dst_low]);
-                new_buffer[dst_high] += Complex::from_polar(mag_high, phase_acc[dst_high]);
-            } else if dst_low < window_size {
-                new_buffer[dst_low] += Complex::from_polar(mag, phase_acc[dst_low]);
-            }
-            prev_phase[k] = phase;
-        }
-
-        // After pitch shifting, before IFFT
-        let mut peak_bins = vec![false; window_size];
-        // Simple peak detection on magnitude
-        for k in 1..window_size-1 {
-            if new_buffer[k].norm() > new_buffer[k-1].norm() 
-                && new_buffer[k].norm() > new_buffer[k+1].norm() {
-                peak_bins[k] = true;
-                
-                // Lock harmonics to this peak's phase
-                for harm in (2*k..window_size).step_by(k) {
-                    new_buffer[harm] = Complex::from_polar(
-                        new_buffer[harm].norm(),
-                        new_buffer[k].arg() + (harm as f32 / k as f32) * std::f32::consts::PI * 2.0
-                    );
+                // neg bin
+                if dst > 0 && dst < half_window {
+                    let conjugate_dst = window_size - dst;
+                    new_buffer[conjugate_dst] += Complex {
+                        re: complex_val.re,
+                        im: -complex_val.im, // Conjugate phase
+                    };
                 }
             }
         }
-
         buffer = new_buffer;
-
         ifft.process(&mut buffer);
-
         let scale = 1.0 / window_size as f32;
 
         // OLA: accumulate output and normalization window
@@ -175,7 +143,6 @@ fn main() {
         .map(|&s| s.clamp(-32768.0, 32767.0) as i16)
         .collect();
     let out_bytes: &[u8] = cast_slice(&out_i16);
-
     let max_len = bytes.len() - data_start;
     let copy_len = out_bytes.len().min(max_len);
     bytes[data_start..data_start + copy_len].copy_from_slice(&out_bytes[..copy_len]);
