@@ -1,5 +1,6 @@
 use std::fs::read;
 use std::fs::write;
+use std::time::{Instant};
 use bytemuck::cast_slice;
 use rustfft::{FftPlanner, num_complex::Complex};
 
@@ -45,7 +46,7 @@ fn main() {
     let hop_size = (window_size as f32 * 0.125) as usize; 
 
     // Pitch shift in semitones 
-    let semitones: f32 = -3.0; 
+    let semitones: f32 = -6.0; 
     let pitch_ratio: f32 = 2.0_f32.powf(semitones / 12.0);
 
     let mut planner = FftPlanner::<f32>::new();
@@ -62,6 +63,7 @@ fn main() {
     let mut phase_acc: Vec<f32> = vec![0.0; window_size];
 
     println!("setup done");
+    let now = Instant::now();
 
     let mut idx = 0usize;
     while idx + window_size < sound_data.len() {
@@ -149,4 +151,6 @@ fn main() {
 
     write("output.wav", &bytes).unwrap();
     println!("Done → output.wav");
+    let elapsed_time = now.elapsed();
+    println!("Running took {} seconds.", elapsed_time.as_secs());
 }
