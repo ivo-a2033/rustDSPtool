@@ -57,7 +57,7 @@ fn run_processing(
 
     // need this here, even tho its wav-file and not output stream
     // need to know wav channel number to decide buffer
-    let mut bytes = read("jingle.wav").unwrap();
+    let mut bytes = read("mix.wav").unwrap();
     let wav_channels = u16::from_le_bytes([bytes[22], bytes[23]]) as usize;
     println!("WAV channels = {}", wav_channels);
 
@@ -235,7 +235,7 @@ async fn main(){
     });
 
     loop {
-        clear_background(Color::new(0.0,255.0,0.0,0.0));
+        clear_background(Color::new(0.0,0.0,0.0,0.0));
 
         let (mouse_x, mouse_y) = mouse_position();
         let new_value = mouse_x/screen_width() * 24.0 - 12.0;
@@ -269,6 +269,7 @@ where
             // `data` is interleaved: frame0[ch0..chN], frame1[ch0..chN], ...
             for out in data.iter_mut() {
                 let sample_value = consumer.pop().unwrap_or(0.0); // underrun -> silence
+                if (sample_value == 0.0) {println!("I underrun");}
                 *out = T::from_sample(sample_value);
             }
         },

@@ -12,8 +12,8 @@ use rustfft::num_traits::Pow;
 async fn main() {
 
     
-    let mut bytes = read("megalovania.wav").unwrap();
-    let sound = load_sound("megalovania.wav").await.unwrap();
+    let mut bytes = read("output.wav").unwrap();
+    let sound = load_sound("output.wav").await.unwrap();
     play_sound(&sound, PlaySoundParams { looped: false, volume: 1.0 });
 
     // read metadata
@@ -34,7 +34,7 @@ async fn main() {
 
     let start_time = get_time();
 
-    let scale_x = 4.0;
+    let scale_x = 2.0;
 
     println!("setup done");
 

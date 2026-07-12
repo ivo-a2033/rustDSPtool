@@ -8,5 +8,9 @@ edition = "2024"
 [dependencies]
 bytemuck = "1.24.0"
 hound = "3.5.1"
-macroquad = {version="0.4", features = ["audio"]}
+rtrb = "0.3.4"
 rustfft = "6.4.1"
+tinyaudio = { version = "2.0.0", default-features = false, features = ["pulse"] }
+cpal = "0.16"
+ringbuf = "0.4"
+macroquad = "0.4"

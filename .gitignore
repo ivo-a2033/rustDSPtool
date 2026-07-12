@@ -1,0 +1,6 @@
+*.pyc
+DSP/src/*.wav
+DSP/src/*.mp3
+DSP/src/*.webm
+DSP/src/venv/
+DSP/target/
