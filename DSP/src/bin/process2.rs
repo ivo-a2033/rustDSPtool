@@ -3,6 +3,7 @@ use std::fs::write;
 use std::time::{Instant};
 use bytemuck::cast_slice;
 use rustfft::{FftPlanner, num_complex::Complex};
+use std::env;         
 
 fn hann_window(size: usize) -> Vec<f32> {
     (0..size)
@@ -26,7 +27,17 @@ fn update_bar(idx: usize, window_size: usize, precision: i32, sound_data_len: us
 }
 
 fn main() {
-    let mut bytes = read("jingle.wav").unwrap();
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 4 {
+        eprintln!("Usage: {} <input.wav> <output.wav> <semitones>", args[0]);
+        std::process::exit(1);
+    }
+
+    let input_file = &args[1];
+    let output_file = &args[2];
+    let semitones: f32 = args[3].parse().expect("Semitones must be a number (e.g. -6 or 3.5)");
+
+    let mut bytes = read(input_file).expect("Failed to read input WAV");
 
     // read metadata
     let sample_rate = u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]);
@@ -46,7 +57,6 @@ fn main() {
     let hop_size = (window_size as f32 * 0.125) as usize; 
 
     // Pitch shift in semitones 
-    let semitones: f32 = -6.0; 
     let pitch_ratio: f32 = 2.0_f32.powf(semitones / 12.0);
 
     let mut planner = FftPlanner::<f32>::new();

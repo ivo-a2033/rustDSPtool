@@ -10,7 +10,7 @@ use rtrb::{Consumer, Producer, RingBuffer};
 use macroquad::prelude::*;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-
+use std::env;
 
 fn hann_window(size: usize) -> Vec<f32> {
     (0..size)
@@ -35,6 +35,7 @@ fn update_bar(idx: usize, window_size: usize, precision: i32, sound_data_len: us
 
 fn run_processing(
     pitch_semitones: Arc<AtomicU32>,
+    input_file: String
 ) {
 
     //  CPAL SETUP
@@ -57,7 +58,7 @@ fn run_processing(
 
     // need this here, even tho its wav-file and not output stream
     // need to know wav channel number to decide buffer
-    let mut bytes = read("mix.wav").unwrap();
+    let mut bytes = read(input_file).unwrap();
     let wav_channels = u16::from_le_bytes([bytes[22], bytes[23]]) as usize;
     println!("WAV channels = {}", wav_channels);
 
@@ -227,11 +228,19 @@ fn run_processing(
 #[macroquad::main("Real time pitch shift")]
 async fn main(){
 
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 1 {
+        eprintln!("Usage: {} <input.wav>", args[0]);
+        std::process::exit(1);
+    }
+    let input_file = args[1].clone();
+  
+
     let pitch_semitones = Arc::new(AtomicU32::new(0.0f32.to_bits()));
 
     let pitch_for_processing = pitch_semitones.clone();
     let handle = thread::spawn(move || {
-        run_processing(pitch_for_processing);
+        run_processing(pitch_for_processing, input_file);
     });
 
     loop {
